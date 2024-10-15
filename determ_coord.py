@@ -9,6 +9,7 @@ class Determ_coord():
     count_rotate = 0
     old_begin = [0, 0]
 
+
     def __init__(self, point1, point2, point3, image_size):
         point_pixel1 = [0, 0]
         point_pixel2 = [0, image_size[1]]
@@ -65,6 +66,8 @@ class Determ_coord():
                     array_out.append(array[i])
                     i = i + 1 if i < 3 else 0
                 break
+            elif temp == array[i] and i == 0:
+                return array
         # print(array)
         # print(array_out)
         # print(self.count_rotate)
@@ -109,6 +112,10 @@ class Determ_coord():
         # angle = math.degrees(angle_rad)
         # print(round(angle_rad, 3))
         return round(angle_rad, 3)
+
+    def get_common_angle(self):
+        common_angle = self.count_rotate * 90 + self.angle
+        return common_angle
 
     def find_latitude(self):
         size_1 = abs((self.point_pixel2[1] - self.target_pixel_point[1]) * math.tan(self.angle))
