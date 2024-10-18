@@ -91,34 +91,6 @@ def location_images_2(good_matches, kp, matches_index):
     return matches
 
 
-def search_center(main_matches, matches_2):
-    # Массивы с точками соответствия
-    pts1 = np.float32([m for m in matches_2]).reshape(-1, 1, 2)
-    pts2 = np.float32([m for m in main_matches]).reshape(-1, 1, 2)
-    H, mask = cv.findHomography(pts1, pts2, cv.RANSAC)
-    return H
-
-
-def true_center(img, main_matches, matches):
-    for i in range(len((matches))):
-        print_map(gray, matches[i], 3)
-
-    true_center = np.array([[img.shape[1] / 2, img.shape[0] / 2]], dtype='float32').reshape(-1, 1, 2)
-    # print(f"{true_center=}, {true_center.shape}")
-
-    # print("In true center")
-    # print(len(main_matches), main_matches)
-    # print(len(matches), matches)
-    H = search_center(main_matches, matches)
-    # print(H)
-    find_center = cv.perspectiveTransform(true_center, H)
-    find = []
-    find.append(int(find_center[0][0][0]))
-    find.append(int(find_center[0][0][1]))
-    print(f"{find=}")
-    return find
-
-
 # Отображение местоположения дрона на главном изображении
 def print_map(img1, center, thick):
     color = (0, 0, 255)
@@ -168,16 +140,16 @@ def pixel_mask(matches):  # принимаются координаты КТ г�
     height_coefficient = round(height_map / flight_altitude, 2)
 
     for i in range(len(matches)):
-        if ((matches[i][0] >= median_x - img1.shape[1] / (height_coefficient / mask_correction))
-                and (matches[i][0] <= median_x + img1.shape[1] / (height_coefficient / mask_correction))):
-            if ((matches[i][1] >= median_y - img1.shape[1] / (height_coefficient / mask_correction))
-                    and (matches[i][1] <= median_y + img1.shape[1] / (height_coefficient / mask_correction))):
+        if ((matches[i][0] >= median_x - img1.shape[1] / height_coefficient * mask_correction)
+                and (matches[i][0] <= median_x + img1.shape[1] / height_coefficient * mask_correction)):
+            if ((matches[i][1] >= median_y - img1.shape[1] / height_coefficient * mask_correction)
+                    and (matches[i][1] <= median_y + img1.shape[1] / height_coefficient * mask_correction)):
                 correct_matches.append(matches[i])
                 correct_matches_index.append(i)
     print(f"Общих точек: до {len(matches)}, после фильтра {len(correct_matches)}")
 
-    for i in range(len(correct_matches)):
-        print_map(img1, correct_matches[i], 5)
+    # for i in range(len(correct_matches)):
+    #     print_map(img1, correct_matches[i], 5)
     # point = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y + img1.shape[1] / (height_coefficient / mask_correction))]
     # point2 = [int(median_x + img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
     # point3 = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
@@ -190,21 +162,121 @@ def pixel_mask(matches):  # принимаются координаты КТ г�
     return correct_matches, correct_matches_index
 
 
+# Вычисление матрицы преобразования координат
+def transformation_matrix(main_matches, matches_2):
+    # Массивы с точками соответствия
+    pts1 = np.float32([m for m in matches_2]).reshape(-1, 1, 2)
+    pts2 = np.float32([m for m in main_matches]).reshape(-1, 1, 2)
+    H, mask = cv.findHomography(pts1, pts2, cv.RANSAC)
+    return H
+
+
+# Определение положения на опорном кадре с помощью матрицы преобразования
+def true_center(img, main_matches, matches):
+    for i in range(len((matches))):
+        print_map(gray, matches[i], 3)
+
+    crop_center = np.array([[img.shape[1] / 2, img.shape[0] / 2]], dtype='float32').reshape(-1, 1, 2)
+    H = transformation_matrix(main_matches, matches)
+    try:
+        if len(H) < 3:
+            return None
+        find_center = cv.perspectiveTransform(crop_center, H)
+        true_center = []
+        true_center.append(int(find_center[0][0][0]))
+        true_center.append(int(find_center[0][0][1]))
+        print(f"{true_center=}")
+
+        # Отсеивание выбросов
+        true_center = filtering_emissions(true_center, main_matches)
+
+        return true_center
+    except TypeError:
+        print("Ошибка матрицы гомографии.\n")
+        return None
+
+
+# Функция отсеивания выбросов
+def filtering_emissions(center, matches):
+    # Нахождение коэффициента разницы высот полета и главного снимка для определения области возможного нахождения
+    height_coefficient = round(height_map / flight_altitude, 2)
+
+    mask_correction = 1
+    match_x = sorted(matches)
+    match_y = sorted(matches, key=lambda i: i[1])
+
+    # Среднее значение центра по крайним точкам
+    median_x = int((match_x[0][0] + match_x[-1][0]) / 2)
+    median_y = int((match_y[0][1] + match_y[-1][1]) / 2)
+
+    # Медианное значение центра
+    # if len(matches) % 2 == 0:
+    #     indx1 = int(len(matches) / 2 - 1)
+    #     indx2 = int(len(matches) / 2)
+    #     median_y = (match_y[indx1][1] + match_y[indx2][1]) / 2
+    #     median_x = (match_x[indx1][0] + match_x[indx2][0]) / 2
+    # else:
+    #     indx = int((len(matches) - 1) / 2)
+    #     median_y = match_y[indx][1]
+    #     median_x = match_x[indx][0]
+
+    # Среднее значение центра по всем точкам
+    # median_x = int(sum(i[0] for i in matches) / len(matches))
+    # median_y = int(sum(i[1] for i in matches) / len(matches))
+
+    k = 1
+    # point = [int(median_x - img1.shape[k] / height_coefficient * mask_correction), int(median_y + img1.shape[k] / height_coefficient * mask_correction)]
+    # point2 = [int(median_x + img1.shape[k] / height_coefficient * mask_correction), int(median_y - img1.shape[k] / height_coefficient * mask_correction)]
+    # point3 = [int(median_x - img1.shape[k] / height_coefficient * mask_correction), int(median_y - img1.shape[k] / height_coefficient * mask_correction)]
+    # point4 = [int(median_x + img1.shape[k] / height_coefficient * mask_correction), int(median_y + img1.shape[k] / height_coefficient * mask_correction)]
+    # print_map(img1, point, 25)
+    # print_map(img1, point2, 25)
+    # print_map(img1, point3, 25)
+    # print_map(img1, point4, 25)
+    # print_map(img1, [median_x, median_y], 25)
+
+    # print(img1.shape[k], img1.shape[k] / height_coefficient * mask_correction)
+    if (((center[0] < median_x - img1.shape[k] / height_coefficient * mask_correction)
+         or (center[0] > median_x + img1.shape[k] / height_coefficient * mask_correction))
+            or ((center[1] < median_y - img1.shape[k] / height_coefficient * mask_correction)
+                or (center[1] > median_y + img1.shape[k] / height_coefficient * mask_correction))):
+        print(f"Emission found: {center=}")
+        return None
+    return center
+
+
+# Удаление одинаковых точек
 def check_matches(main_matches, crop_matches):
     matches_1, matches_2 = [], []
-    cnt = 0
     for i in range(len(main_matches)):
         flag = True
         for j in range(len(matches_1)):
-            if main_matches[i] == matches_1[j] or crop_matches[i] == matches_2[j]:
+            if main_matches[i] == matches_1[j] and crop_matches[i] == matches_2[j]:
                 flag = False
-                cnt += 1
                 break
         if flag:
             matches_1.append(main_matches[i])
             matches_2.append(crop_matches[i])
-    # print(f"{cnt=}")
-    print(f"Общих точек: до {len(main_matches), len(crop_matches)}, после отсеивания {len(matches_1), len(matches_2)}")
+
+    # cnt_2, cnt_3 = 0, 0
+    # for i in range(len(matches_1)):
+    #     flag = True
+    #     for j in range(i):
+    #         if matches_1[i] == matches_1[j]:
+    #             flag = False
+    #             break
+    #     if flag:
+    #         cnt_2 += 1
+    #
+    #     flag = True
+    #     for k in range(i):
+    #         if matches_2[i] == matches_2[k]:
+    #             flag = False
+    #             break
+    #     if flag:
+    #         cnt_3 += 1
+
+    # print(f"{cnt_2=}, {cnt_3=}")
     # print("Undo check")
     # print(len(main_matches), main_matches)
     # print(len(crop_matches), crop_matches, "\n")
@@ -212,9 +284,12 @@ def check_matches(main_matches, crop_matches):
     # print("After check")
     # print(len(matches_1), matches_1)
     # print(len(matches_2), matches_2, "\n")
-    if len(matches_1) > 3:
+
+    if len(matches_1) > 3:  # and cnt_2 > 3 and cnt_3 > 3
+        print(f"Общих точек: до {len(crop_matches)}, после отсеивания {len(matches_1)}")
         return matches_1, matches_2
     else:
+        print(f"Общих точек: до {len(crop_matches)}, после отсеивания 0")
         return [], []
 
 
@@ -223,23 +298,24 @@ def definition_of_blur(height, altitude):
     if diff <= 5:
         return 5, 5
     elif diff % 2 == 1:
-        return diff-2, diff-2
+        return diff - 2, diff - 2
     else:
         return diff - 1, diff - 1
 
 
+cnt_emis = 0
 # WK_00005-1
 point_main1 = (48.245954, 46.164273)  # Левый верхний угол
 point_main2 = (48.238956, 46.166415)  # Правый верхний угол
 point_main3 = (48.238237, 46.160394)  # Нижний верхний угол
 
-path_main = 'C:\\My\\Projects\\images\\main\\WK_00002-1.jpg'
+path_main = 'C:\\My\\Projects\\images\\main\\WK_00004-1.jpg'
 img1 = cv.imread(path_main, cv.IMREAD_GRAYSCALE)
 img1 = cv.GaussianBlur(img1, (5, 5), sigmaX=0, sigmaY=0)
 temp_img1 = img1.copy()
 kp1, des1 = search_KP(img1)
-height_map = 200  # Высота съемки карты
-print(f"kp1 {len(kp1)}")
+height_map = 400  # Высота съемки карты
+# print(f"kp1 {len(kp1)}")
 
 determ = dt.Determ_coord(point_main1, point_main2, point_main3, img1.shape)
 filter = None
@@ -257,74 +333,80 @@ while cap.isOpened():
     frame_count += 1
     ret, frame = cap.read()
     if not ret:
-        print("Конец видеофайла.")
+        print("\nКонец видеофайла.")
         break
 
-    if frame_count == 80:
+    if frame_count == 10:
         f_cnt += 1
+        print(f"\n{f_cnt=}")
         frame_count = 0
 
-        # Предобработка кадра
-        flight_altitude = 30  # текущая высота полета
-        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        gray = resize_img(gray, 1024)
-        kernel = definition_of_blur(height_map, flight_altitude)
-        # kernel = (15, 15)
-        print(f"{kernel=}")
-        gray = cv.GaussianBlur(gray, kernel, sigmaX=0, sigmaY=0)
+        if f_cnt >= 0:
+            # Предобработка кадра
+            flight_altitude = 30  # текущая высота полета
+            gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+            gray = resize_img(gray, 1024)
+            kernel = definition_of_blur(height_map, flight_altitude)
+            # kernel = (5, 5)
+            print(f"{kernel=}")
+            gray = cv.GaussianBlur(gray, kernel, sigmaX=0, sigmaY=0)
 
-        # Нахождение опорных точек на кадре и сравнение с опорным изображением
-        kp2, des2 = search_KP(gray)
-        print(f"\nkp2 {len(kp2)}")
-        good_matches = matcher(des1, des2)
+            # Нахождение опорных точек на кадре и сравнение с опорным изображением
+            kp2, des2 = search_KP(gray)
+            # print(f"\nkp2 {len(kp2)}")
+            good_matches = matcher(des1, des2)
+            # print_map_2(gray, 7)
 
-        if good_matches != None:
-            # поиск общих КТ на главном изображении
-            main_matches = location_images(good_matches, kp1)
-            main_matches, matches_index = pixel_mask(main_matches)
-            matches_2 = location_images_2(good_matches, kp2, matches_index)
-            main_matches_filter, matches_2_filter = check_matches(main_matches, matches_2)
+            if good_matches != None:
+                # поиск общих КТ на главном изображении
+                main_matches = location_images(good_matches, kp1)
+                main_matches, matches_index = pixel_mask(main_matches)
+                matches_2 = location_images_2(good_matches, kp2, matches_index)
+                main_matches_filter, matches_2_filter = check_matches(main_matches, matches_2)
+                print(len(main_matches_filter), main_matches_filter)
+                print(len(matches_2_filter), matches_2_filter)
 
-            if len(main_matches) > 3:
-                coord_cnt += 1
-                # center = search_center(main_matches)
-                center = true_center(gray, main_matches_filter, matches_2_filter)
-                # print_map(img1, center, 30)
-                center_coord = determ.calculate(center)
-                print_map(img1, center, 30)
-                print_map_2(gray, 7)
-                img1 = temp_img1.copy()
+                if len(main_matches_filter) > 3:
+                    # center = search_center(main_matches)
+                    center = true_center(gray, main_matches_filter, matches_2_filter)
+                    if center:
+                        coord_cnt += 1
+                        # center_coord = determ.calculate(center)
+                        print_map(img1, center, 20)
+                        # print_map_2(gray, 7)
+                        # img1 = temp_img1.copy()
+                    else:
+                        cnt_emis += 1
+                        print("Совпадений не найдено1.\n")
 
-                # if not filter:
-                #     filter = Filter.DroneGPSFilter(center_coord)
-                #     # filter = kf.DroneGPSKalman(center_coord)
-                #     print_map(center, 20)
-                # else:
-                #     center_coord_filter = filter.update_coords(center_coord, thresh)
-                #     if center_coord_filter != None:
-                #         print_map(center, 20)
-                #         print(f"Найденное местоположение: Широта = {center_coord[0]}, Долгота = {center_coord[1]}\n")
-                #         thresh = 0.0015
-                #     else:
-                #         thresh += 0.0002
-                #         print_map(center, 40)
-                #         print(f"Ошибка вычислений: Широта = {center_coord[0]}, Долгота = {center_coord[1]}\n")
+                    # if not filter:
+                    #     filter = Filter.DroneGPSFilter(center_coord)
+                    #     # filter = kf.DroneGPSKalman(center_coord)
+                    #     print_map(center, 20)
+                    # else:
+                    #     center_coord_filter = filter.update_coords(center_coord, thresh)
+                    #     if center_coord_filter != None:
+                    #         print_map(center, 20)
+                    #         print(f"Найденное местоположение: Широта = {center_coord[0]}, Долгота = {center_coord[1]}\n")
+                    #         thresh = 0.0015
+                    #     else:
+                    #         thresh += 0.0002
+                    #         print_map(center, 40)
+                    #         print(f"Ошибка вычислений: Широта = {center_coord[0]}, Долгота = {center_coord[1]}\n")
 
-                # positions.append(f"{float(center[0])} {float(center[1])}\n")
+                    # positions.append(f"{float(center[0])} {float(center[1])}\n")
 
-                # filter.update(center[0], center[1])
-                # state_estimate = filter.get_state()
-                # filtered.append(state_estimate[:2])
-                # print(f"Предсказанное состояние: Широта = {state_estimate}")
-                #
-                # cv.imshow(" ", gray)
-                # cv.waitKey(0)
-                # cv.destroyAllWindows()
-            else:
-                thresh += 0.0002
-                print("Совпадений не найдено.\n")
-        else:
-            thresh += 0.0002
+                    # filter.update(center[0], center[1])
+                    # state_estimate = filter.get_state()
+                    # filtered.append(state_estimate[:2])
+                    # print(f"Предсказанное состояние: Широта = {state_estimate}")
+                    #
+                    # cv.imshow(" ", gray)
+                    # cv.waitKey(0)
+                    # cv.destroyAllWindows()
+                else:
+                    thresh += 0.0002
+                    print("Совпадений не найдено2.\n")
 
         # # показывает полет наглядно, но тормозит программу
         # plt.imshow(img1, "gray"), plt.show(block=False)
@@ -332,6 +414,7 @@ while cap.isOpened():
 
 print(f"Всего кадров: {f_cnt}; найдено: {coord_cnt}")
 print(f"{kernel=}")
+print(f"Исключено выбросов: {cnt_emis=}")
 # filter.visualize(positions, filtered)
 
 # with open("Coordinates.txt", "w") as f:
