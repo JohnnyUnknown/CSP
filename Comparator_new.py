@@ -1,0 +1,262 @@
+import cv2 as cv
+import Preprocessing
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import SearchMethods as SM
+
+
+class Compare():
+    good_match = 0
+    filter_matches = 0
+    center = None
+    center_location = None
+    key_1 = 0  # Кол-во контрольных точек основного изображения
+    key_2 = 0  # Кол-во контрольных точек области видимости
+    method = None  # Объект класса Method
+
+    def __init__(self, img, kp, des, height, img_2, altitude, method):
+        self.img1 = img  # print_map
+        self.kp1 = kp
+        self.des1 = des
+        self.height_map = height
+        self.img_size = img.shape
+        self.gray = img_2
+        self.flight_altitude = altitude
+        self.method = method
+
+    # Поиск списка координат общих КТ на главном изображении
+    def find_area(self, good_matches, kp1):
+        matches = []
+        for i in range(len(good_matches)):
+            dmatch = good_matches[i]
+            # Поиск найденных КТ для обеих изображений в списке КТ главного изображения
+            large_image_KP = list(kp1[dmatch.queryIdx].pt)
+            large_image_KP[0] = int(large_image_KP[0])
+            large_image_KP[1] = int(large_image_KP[1])
+            # Добавление в список КТ главного изображения, совпадающих с КТ искомого
+            matches.append(large_image_KP)
+        return matches
+
+    # Поиск списка координат общих КТ на кадре после pixel_mask
+    def location_images_2(self, good_matches, kp, matches_index):
+        matches = []
+        for i in range(len(good_matches)):
+            if i in matches_index:
+                large_image_KP = list(kp[good_matches[i].trainIdx].pt)
+                large_image_KP[0] = int(large_image_KP[0])
+                large_image_KP[1] = int(large_image_KP[1])
+                matches.append(large_image_KP)
+        return matches
+
+    # Поиск прямоугольника, образующего искомую область на главном изображении
+    def search_center(self, matches):
+        list_x = []
+        list_y = []
+        for i in range(len(matches)):
+            list_x.append(matches[i][0])
+            list_y.append(matches[i][1])
+        list_x.sort()
+        list_y.sort()
+        # Нахождение центральной точки искомого изображения на главном изображении
+        center_x = int((list_x[0] + list_x[-1]) / 2)
+        center_y = int((list_y[0] + list_y[-1]) / 2)
+        return [center_x, center_y]
+
+    # Отображение местоположения дрона на главном изображении
+    def print_map(self):
+        # Отрисовка найденного центра на опороном изображении
+        color = (0, 0, 0)
+        temp_main_img = self.img1.copy()
+        main_img = cv.circle(self.img1, self.center, radius=10, color=color, thickness=20)
+        center2 = [round(self.gray.shape[1] / 2), round(self.gray.shape[0] / 2)]
+        crop_img = cv.circle(self.gray, center2, radius=3, color=color, thickness=6)
+
+        cv.imshow("Main image", Preprocessing.resize_img(main_img, 1280))
+        if crop_img.shape[1] > 1280:
+            new_width = 1280
+        else:
+            new_width = crop_img.shape[1]
+        cv.imshow("Crop image", Preprocessing.resize_img(crop_img, new_width))
+        cv.waitKey(0)
+        cv.destroyAllWindows()
+
+    def print_points(self, img1, center, thick):
+        color = (0, 0, 255)
+        img3 = cv.circle(img1, center, 3, color, thick)
+        cv.imwrite("main_with_points_new.jpg", img3)
+
+    # Маска проверки найденных КТ на карте
+    def pixel_mask(self, matches):  # принимаются координаты КТ главного изображения
+        correct_matches = []
+        correct_matches_index = []
+        mask_correction = 1
+        match_x = sorted(matches)
+        match_y = sorted(matches, key=lambda i: i[1])
+
+        if len(matches) % 2 == 0:
+            indx1 = int(len(matches) / 2 - 1)
+            indx2 = int(len(matches) / 2)
+            median_y = (match_y[indx1][1] + match_y[indx2][1]) / 2
+            median_x = (match_x[indx1][0] + match_x[indx2][0]) / 2
+        else:
+            indx = int((len(matches) - 1) / 2)
+            median_y = match_y[indx][1]
+            median_x = match_x[indx][0]
+
+        # Нахождение коэффициента разницы высот полета и главного снимка для маски
+        height_coefficient = round(self.height_map / self.flight_altitude, 2)
+
+        for i in range(len(matches)):
+            if ((matches[i][0] >= median_x - self.img1.shape[1] / height_coefficient * mask_correction)
+                    and (matches[i][0] <= median_x + self.img1.shape[1] / height_coefficient * mask_correction)):
+                if ((matches[i][1] >= median_y - self.img1.shape[1] / height_coefficient * mask_correction)
+                        and (matches[i][1] <= median_y + self.img1.shape[1] / height_coefficient * mask_correction)):
+                    correct_matches.append(matches[i])
+                    correct_matches_index.append(i)
+
+        # for i in range(len(correct_matches)):
+        #     self.print_points(self.img1, correct_matches[i], 5)
+        # point = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y + img1.shape[1] / (height_coefficient / mask_correction))]
+        # point2 = [int(median_x + img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
+        # point3 = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
+        # point4 = [int(median_x + img1.shape[1] / (height_coefficient / mask_correction)), int(median_y + img1.shape[1] / (height_coefficient / mask_correction))]
+        # print_map(img1, point, 25)
+        # print_map(img1, point2, 25)
+        # print_map(img1, point3, 25)
+        # print_map(img1, point4, 25)
+
+        return correct_matches, correct_matches_index
+
+    # Вычисление матрицы преобразования координат
+    def transformation_matrix(self, main_matches, matches_2):
+        # Массивы с точками соответствия
+        pts1 = np.float32([m for m in matches_2]).reshape(-1, 1, 2)
+        pts2 = np.float32([m for m in main_matches]).reshape(-1, 1, 2)
+        H, mask = cv.findHomography(pts1, pts2, cv.RANSAC)
+        return H
+
+    # Определение положения на опорном кадре с помощью матрицы преобразования
+    def true_center(self, img, main_matches, matches):
+        # for i in range(len((matches))):
+        #     self.print_points(self.gray, matches[i], 3)
+
+        crop_center = np.array([[img.shape[1] / 2, img.shape[0] / 2]], dtype='float32').reshape(-1, 1, 2)
+        H = self.transformation_matrix(main_matches, matches)
+        try:
+            if len(H) < 3:
+                return None
+            find_center = cv.perspectiveTransform(crop_center, H)
+            true_center = []
+            true_center.append(int(find_center[0][0][0]))
+            true_center.append(int(find_center[0][0][1]))
+            # print(f"{true_center=}")
+
+            # Отсеивание выбросов
+            true_center = self.filtering_emissions(true_center, main_matches)
+
+            return true_center
+        except TypeError:
+            print("Ошибка матрицы гомографии.\n")
+            return None
+
+    # Функция отсеивания выбросов
+    def filtering_emissions(self, center, matches):
+        # Нахождение коэффициента разницы высот полета и главного снимка для определения области возможного нахождения
+        height_coefficient = round(self.height_map / self.flight_altitude, 2)
+
+        mask_correction = 1
+        match_x = sorted(matches)
+        match_y = sorted(matches, key=lambda i: i[1])
+
+        # Среднее значение центра по крайним точкам
+        median_x = int((match_x[0][0] + match_x[-1][0]) / 2)
+        median_y = int((match_y[0][1] + match_y[-1][1]) / 2)
+
+        # Медианное значение центра
+        # if len(matches) % 2 == 0:
+        #     indx1 = int(len(matches) / 2 - 1)
+        #     indx2 = int(len(matches) / 2)
+        #     median_y = (match_y[indx1][1] + match_y[indx2][1]) / 2
+        #     median_x = (match_x[indx1][0] + match_x[indx2][0]) / 2
+        # else:
+        #     indx = int((len(matches) - 1) / 2)
+        #     median_y = match_y[indx][1]
+        #     median_x = match_x[indx][0]
+
+        # Среднее значение центра по всем точкам
+        # median_x = int(sum(i[0] for i in matches) / len(matches))
+        # median_y = int(sum(i[1] for i in matches) / len(matches))
+
+        k = 1
+        # point = [int(median_x - img1.shape[k] / height_coefficient * mask_correction), int(median_y + img1.shape[k] / height_coefficient * mask_correction)]
+        # point2 = [int(median_x + img1.shape[k] / height_coefficient * mask_correction), int(median_y - img1.shape[k] / height_coefficient * mask_correction)]
+        # point3 = [int(median_x - img1.shape[k] / height_coefficient * mask_correction), int(median_y - img1.shape[k] / height_coefficient * mask_correction)]
+        # point4 = [int(median_x + img1.shape[k] / height_coefficient * mask_correction), int(median_y + img1.shape[k] / height_coefficient * mask_correction)]
+        # print_map(img1, point, 25)
+        # print_map(img1, point2, 25)
+        # print_map(img1, point3, 25)
+        # print_map(img1, point4, 25)
+        # print_map(img1, [median_x, median_y], 25)
+
+        # print(img1.shape[k], img1.shape[k] / height_coefficient * mask_correction)
+        if (((center[0] < median_x - self.img1.shape[k] / height_coefficient * mask_correction)
+             or (center[0] > median_x + self.img1.shape[k] / height_coefficient * mask_correction))
+                or ((center[1] < median_y - self.img1.shape[k] / height_coefficient * mask_correction)
+                    or (center[1] > median_y + self.img1.shape[k] / height_coefficient * mask_correction))):
+            print(f"Emission found: {center=}")
+            return None
+        return center
+
+    # Удаление одинаковых точек
+    def check_matches(self, main_matches, crop_matches):
+        matches_1, matches_2 = [], []
+        for i in range(len(main_matches)):
+            flag = True
+            for j in range(len(matches_1)):
+                if main_matches[i] == matches_1[j] and crop_matches[i] == matches_2[j]:
+                    flag = False
+                    break
+            if flag:
+                matches_1.append(main_matches[i])
+                matches_2.append(crop_matches[i])
+
+        if len(matches_1) > 3:  # and cnt_2 > 3 and cnt_3 > 3
+            # print(f"Общих точек: до {len(crop_matches)}, после отсеивания {len(matches_1)}")
+            return matches_1, matches_2
+        else:
+            # print(f"Общих точек: до {len(crop_matches)}, после отсеивания 0")
+            return [], []
+
+    def comparator(self, visual=True):
+        kp2, des2 = self.method.get_kp_and_des(self.gray)
+        # self.key_1 = len(self.kp1)
+        # self.key_2 = len(kp2)
+
+        if len(kp2) > 3:
+            good_matches = self.method.find_and_get_matches(self.des1, des2)
+            if good_matches != None:
+                # self.good_match = len(good_matches)
+                main_matches = self.find_area(good_matches, self.kp1)
+                main_matches, matches_index = self.pixel_mask(main_matches)
+                matches_2 = self.location_images_2(good_matches, kp2, matches_index)
+                main_matches_filter, matches_2_filter = self.check_matches(main_matches, matches_2)
+
+                # self.filter_matches = len(main_matches)
+                if len(main_matches) > 3:
+                    self.center = self.true_center(self.gray, main_matches_filter, matches_2_filter)
+                    if self.center:
+                        # self.print_points(self.img1, center, 25)
+                        if visual:
+                            self.print_map()
+
+                        if os.path.exists("main_with_points_new.jpg"):
+                            main_img_with_points = cv.circle(cv.imread("main_with_points_new.jpg"), self.center,
+                                                             radius=10,
+                                                             color=(0, 0, 0), thickness=20)
+                            cv.imwrite("main_with_points_new.jpg", main_img_with_points)
+                        else:
+                            cv.imwrite("main_with_points_new.jpg", self.img1)
+
+                        return 1
+        return 0
