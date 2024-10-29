@@ -243,7 +243,7 @@ class Compare():
                 main_matches_filter, matches_2_filter = self.check_matches(main_matches, matches_2)
 
                 # self.filter_matches = len(main_matches)
-                if len(main_matches) > 3:
+                if len(main_matches_filter) > 3:
                     self.center = self.true_center(self.gray, main_matches_filter, matches_2_filter)
                     if self.center:
                         # self.print_points(self.img1, center, 25)
