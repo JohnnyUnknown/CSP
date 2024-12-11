@@ -1,8 +1,6 @@
 import cv2 as cv
 import Preprocessing
 import os
-import matplotlib.pyplot as plt
-import SearchMethods as SM
 
 
 class Compare():
@@ -14,12 +12,12 @@ class Compare():
     key_2 = 0  # Кол-во контрольных точек области видимости
     method = None  # Объект класса Method
 
-    def __init__(self, img, kp, des, height, img_2, altitude, method):
-        self.img1 = img  # print_map
-        self.kp1 = kp
-        self.des1 = des
-        self.height_map = height
-        self.img_size = img.shape
+    def __init__(self, *, main_img, kp_main, des_main, height_main, img_2, altitude, method):
+        self.img1 = main_img  # print_map
+        self.kp1 = kp_main
+        self.des1 = des_main
+        self.height_map = height_main
+        self.img_size = main_img.shape
         self.gray = img_2
         self.flight_altitude = altitude
         self.method = method
@@ -56,13 +54,13 @@ class Compare():
         # Отрисовка найденного центра на опороном изображении
         color = (0, 0, 0)
         temp_main_img = self.img1.copy()
-        main_img = cv.circle(self.img1, self.center, radius=10, color=color, thickness=20)
+        main_img = cv.circle(temp_main_img, self.center, radius=3, color=color, thickness=20)
         center2 = [round(self.gray.shape[1] / 2), round(self.gray.shape[0] / 2)]
         crop_img = cv.circle(self.gray, center2, radius=3, color=color, thickness=6)
 
-        cv.imshow("Main image", Preprocessing.resize_img(main_img, 1280))
-        if crop_img.shape[1] > 1280:
-            new_width = 1280
+        cv.imshow("Main image", Preprocessing.resize_img(main_img, 1024))
+        if crop_img.shape[1] > 1024:
+            new_width = 1024
         else:
             new_width = crop_img.shape[1]
         cv.imshow("Crop image", Preprocessing.resize_img(crop_img, new_width))
@@ -114,18 +112,17 @@ class Compare():
 
     def comparator(self, visual=True):
         kp2, des2 = self.method.get_kp_and_des(self.gray)
-        # self.key_1 = len(self.kp1)
-        # self.key_2 = len(kp2)
 
-        if len(kp2) > 2:
-            good_matches = self.method.find_and_get_matches(self.des1, des2)
+        if kp2 == None or len(kp2) > 3:
+            if kp2 == None:
+                self.kp1, kp2, good_matches = self.method.find_and_get_matches(img1=self.img1, img2=self.gray)
+            else:
+                _, _, good_matches = self.method.find_and_get_matches(des1=self.des1, des2=des2)
+
+            print(f"1: {len(self.kp1)}, 2: {len(kp2)}, Общих: {None if good_matches == None else len(good_matches)}")
             if good_matches != None:
-                # self.good_match = len(good_matches)
-                # поиск общих КТ на главном изображении
                 main_matches = self.find_area(good_matches, self.kp1)
-                # Сравнение найденных общих КТ с маской проверки
                 main_matches = self.pixel_mask(main_matches)
-                self.filter_matches = len(main_matches)
                 if len(main_matches) > 2:
                     self.center = self.search_center(main_matches)
                     if visual:

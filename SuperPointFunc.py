@@ -52,7 +52,7 @@ def extract_descriptors(desc, keypoints, H, W):
 
 # Приведение изображения к нужному формату (оттенки серого и нормализация)
 def preprocess_image(img):
-    new_size = 2560
+    new_size = 1024
     if img.shape[1] > new_size:
         img = Prep.resize_img(img, new_size)
     # img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -80,6 +80,7 @@ def get_keypoints_and_descriptors(img, model, threshold=0.015):
     with torch.no_grad():
         # Получение выхода модели
         semi, desc = model(img_preprocessed)
+
         # Извлечение вероятностной карты ключевых точек
         keypoints = extract_keypoints(semi[0], threshold)
         # Получаем x и y координаты ключевых точек

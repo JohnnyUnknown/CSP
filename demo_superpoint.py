@@ -25,6 +25,8 @@ class SuperPointNet(torch.nn.Module):
     self.relu = torch.nn.ReLU(inplace=True)
     self.pool = torch.nn.MaxPool2d(kernel_size=2, stride=2)
     c1, c2, c3, c4, c5, d1 = 64, 64, 128, 128, 256, 256
+    # c1, c2, c3, c4, c5, d1 = 128, 128, 256, 256, 512, 512
+    # c1, c2, c3, c4, c5, d1 = 256, 256, 512, 512, 1024, 1024
     # Shared Encoder.
     self.conv1a = torch.nn.Conv2d(1, c1, kernel_size=3, stride=1, padding=1)
     self.conv1b = torch.nn.Conv2d(c1, c1, kernel_size=3, stride=1, padding=1)
@@ -71,3 +73,5 @@ class SuperPointNet(torch.nn.Module):
     dn = torch.norm(desc, p=2, dim=1) # Compute the norm.
     desc = desc.div(torch.unsqueeze(dn, 1)) # Divide by norm to normalize.
     return semi, desc
+
+

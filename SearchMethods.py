@@ -3,6 +3,7 @@ import torch
 import SuperPointFunc as SPF
 import demo_superpoint as DSP
 import Affine_transform as Affine
+from superpoint_superglue_deployment import Matcher
 
 
 class Method():
@@ -35,7 +36,8 @@ class Method():
         if self.method_index == 4:
             kp, des = Affine.asift_detectAndCompute(img, self.search_model)
         elif self.method_index == 5:
-            kp, des = SPF.get_keypoints_and_descriptors(img, self.search_model)
+            return None, None
+            # kp, des = SPF.get_keypoints_and_descriptors(img, self.search_model)
         else:
             kp, des = self.search_model.detectAndCompute(img, None)
         return kp, des
@@ -51,20 +53,34 @@ class Method():
             # index_params = dict(algorithm=FLANN_INDEX_LSH, table_number=12, key_size=20, multi_probe_level=2)
             # search_params = dict(checks=50)
             # self.matcher = cv.FlannBasedMatcher(index_params, search_params)
-        elif self.method_index == 5 or self.method_index == 4:
+        elif self.method_index == 4:
             # self.matcher = cv.BFMatcher(cv.NORM_L2, crossCheck=False)
 
             # Используем FlannBasedMatcher для сопоставления дескрипторов
             index_params = dict(algorithm=1, trees=5)
             search_params = dict(checks=50)
             self.matcher = cv.FlannBasedMatcher(index_params, search_params)
+        elif self.method_index == 5:
+            self.matcher = Matcher(
+                {
+                    "superpoint": {
+                        "input_shape": (-1, -1),
+                        "keypoint_threshold": 0.003,
+                    },
+                    "superglue": {
+                        "match_threshold": self.dist_kf,
+                    },
+                    "use_gpu": False,
+                }
+            )
         else:
             self.matcher = cv.BFMatcher()
 
     # Поиск общих КТ двух изображений
-    def find_and_get_matches(self, des1, des2):
+    def find_and_get_matches(self, *, img1=None, img2=None,  des1=None, des2=None):
         self.set_matcher()
-        good = []
+        keypoints1, keypoints2 = 0, 0
+        # good = []
         if self.method_index == 3:
             matches = self.matcher.match(des1, des2)
             good = [m for m in matches if m.distance < self.dist_kf * matches[-1].distance]
@@ -76,12 +92,19 @@ class Method():
             #         m, n = match
             #         if m.distance < self.dist_kf * n.distance:
             #             good.append(m)
-        elif self.method_index == 5 or self.method_index == 4:
+        elif self.method_index == 4:
             # При использовании Flann
             matches = self.matcher.knnMatch(des1, des2, k=2)
             good = [m for m, n in matches if m.distance < self.dist_kf * n.distance]
+        elif self.method_index == 5:
+            keypoints1, keypoints2, _, _, good = self.matcher.match(img1, img2)
+            # matched_img = cv.drawMatches(img1, keypoints1, img2, keypoints2, good, None,
+            #                               flags=cv.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+            # # Отображаем изображение с совпадениями
+            # cv.imshow('Matches', matched_img)
+            # cv.waitKey(0)
+            # cv.destroyAllWindows()
         else:
             matches = self.matcher.knnMatch(des1, des2, k=2)
             good = [m for m, n in matches if m.distance < self.dist_kf * n.distance]
-
-        return good if len(good) >= 3 else None
+        return keypoints1, keypoints2, good if len(good) >= 3 else None

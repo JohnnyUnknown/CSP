@@ -1,9 +1,8 @@
+import cv2
 import cv2 as cv
 import Preprocessing
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-import SearchMethods as SM
 
 
 class Compare():
@@ -15,12 +14,12 @@ class Compare():
     key_2 = 0  # Кол-во контрольных точек области видимости
     method = None  # Объект класса Method
 
-    def __init__(self, img, kp, des, height, img_2, altitude, method):
-        self.img1 = img  # print_map
-        self.kp1 = kp
-        self.des1 = des
-        self.height_map = height
-        self.img_size = img.shape
+    def __init__(self, *, main_img, kp_main, des_main, height_main, img_2, altitude, method):
+        self.img1 = main_img  # print_map
+        self.kp1 = kp_main
+        self.des1 = des_main
+        self.height_map = height_main
+        self.img_size = main_img.shape
         self.gray = img_2
         self.flight_altitude = altitude
         self.method = method
@@ -49,42 +48,28 @@ class Compare():
                 matches.append(large_image_KP)
         return matches
 
-    # Поиск прямоугольника, образующего искомую область на главном изображении
-    def search_center(self, matches):
-        list_x = []
-        list_y = []
-        for i in range(len(matches)):
-            list_x.append(matches[i][0])
-            list_y.append(matches[i][1])
-        list_x.sort()
-        list_y.sort()
-        # Нахождение центральной точки искомого изображения на главном изображении
-        center_x = int((list_x[0] + list_x[-1]) / 2)
-        center_y = int((list_y[0] + list_y[-1]) / 2)
-        return [center_x, center_y]
-
     # Отображение местоположения дрона на главном изображении
     def print_map(self):
         # Отрисовка найденного центра на опороном изображении
-        color = (0, 0, 0)
+        color = (0, 255, 0)
         temp_main_img = self.img1.copy()
-        main_img = cv.circle(self.img1, self.center, radius=10, color=color, thickness=20)
+        main_img = cv.circle(temp_main_img, self.center, radius=3, color=color, thickness=20)
         center2 = [round(self.gray.shape[1] / 2), round(self.gray.shape[0] / 2)]
         crop_img = cv.circle(self.gray, center2, radius=3, color=color, thickness=6)
 
-        cv.imshow("Main image", Preprocessing.resize_img(main_img, 1280))
-        if crop_img.shape[1] > 1280:
-            new_width = 1280
+        cv.imshow("Main image", Preprocessing.resize_img(main_img, 1024))
+        if crop_img.shape[1] > 1024:
+            new_width = 1024
         else:
             new_width = crop_img.shape[1]
         cv.imshow("Crop image", Preprocessing.resize_img(crop_img, new_width))
         cv.waitKey(0)
         cv.destroyAllWindows()
 
-    def print_points(self, img1, center, thick):
-        color = (0, 0, 255)
-        img3 = cv.circle(img1, center, 3, color, thick)
-        cv.imwrite("main_with_points_new.jpg", img3)
+    # def print_points(self, img1, center, thick):
+    #     color = (0, 255, 0)
+    #     img3 = cv.circle(img1, center, 3, color, thick)
+    #     cv.imwrite("main_with_points_new.jpg", img3)
 
     # Маска проверки найденных КТ на карте
     def pixel_mask(self, matches):  # принимаются координаты КТ главного изображения
@@ -116,7 +101,7 @@ class Compare():
                     correct_matches_index.append(i)
 
         # for i in range(len(correct_matches)):
-        #     self.print_points(self.img1, correct_matches[i], 5)
+        #     self.print_points(self.img1, correct_matches[i], 15)
         # point = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y + img1.shape[1] / (height_coefficient / mask_correction))]
         # point2 = [int(median_x + img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
         # point3 = [int(median_x - img1.shape[1] / (height_coefficient / mask_correction)), int(median_y - img1.shape[1] / (height_coefficient / mask_correction))]
@@ -144,19 +129,16 @@ class Compare():
         crop_center = np.array([[img.shape[1] / 2, img.shape[0] / 2]], dtype='float32').reshape(-1, 1, 2)
         H = self.transformation_matrix(main_matches, matches)
         try:
-            if len(H) < 3:
-                return None
             find_center = cv.perspectiveTransform(crop_center, H)
             true_center = []
             true_center.append(int(find_center[0][0][0]))
             true_center.append(int(find_center[0][0][1]))
-            # print(f"{true_center=}")
 
             # Отсеивание выбросов
             true_center = self.filtering_emissions(true_center, main_matches)
-
             return true_center
-        except TypeError:
+
+        except cv2.error:
             print("Ошибка матрицы гомографии.\n")
             return None
 
@@ -204,12 +186,13 @@ class Compare():
              or (center[0] > median_x + self.img1.shape[k] / height_coefficient * mask_correction))
                 or ((center[1] < median_y - self.img1.shape[k] / height_coefficient * mask_correction)
                     or (center[1] > median_y + self.img1.shape[k] / height_coefficient * mask_correction))):
-            print(f"Emission found: {center=}")
+            print(f"{median_x=} {median_y=}")
+            print(f"Emission found: {center=} {self.img1.shape=} {self.img1.shape[k] / height_coefficient * mask_correction}")
             return None
         return center
 
     # Удаление одинаковых точек
-    def check_matches(self, main_matches, crop_matches):
+    def deleting_identical_points(self, main_matches, crop_matches):
         matches_1, matches_2 = [], []
         for i in range(len(main_matches)):
             flag = True
@@ -230,23 +213,24 @@ class Compare():
 
     def comparator(self, visual=True):
         kp2, des2 = self.method.get_kp_and_des(self.gray)
-        # self.key_1 = len(self.kp1)
-        # self.key_2 = len(kp2)
 
-        if len(kp2) > 3:
-            good_matches = self.method.find_and_get_matches(self.des1, des2)
+        if kp2 == None or len(kp2) > 3:
+            if kp2 == None:
+                self.kp1, kp2, good_matches = self.method.find_and_get_matches(img1=self.img1, img2=self.gray)
+            else:
+                _, _, good_matches = self.method.find_and_get_matches(des1=self.des1, des2=des2)
+
+            print(f"1: {len(self.kp1)}, 2: {len(kp2)}, Общих: {None if good_matches == None else len(good_matches)}")
             if good_matches != None:
-                # self.good_match = len(good_matches)
                 main_matches = self.find_area(good_matches, self.kp1)
                 main_matches, matches_index = self.pixel_mask(main_matches)
                 matches_2 = self.location_images_2(good_matches, kp2, matches_index)
-                main_matches_filter, matches_2_filter = self.check_matches(main_matches, matches_2)
+                main_matches_filter, matches_2_filter = self.deleting_identical_points(main_matches, matches_2)
+                print(f"Before {len(main_matches)}, after {len(main_matches_filter)}")
 
-                # self.filter_matches = len(main_matches)
                 if len(main_matches_filter) > 3:
                     self.center = self.true_center(self.gray, main_matches_filter, matches_2_filter)
                     if self.center:
-                        # self.print_points(self.img1, center, 25)
                         if visual:
                             self.print_map()
 
