@@ -5,7 +5,7 @@ import os
 import numpy as np
 
 
-class Compare():
+class Compare:
     good_match = 0
     filter_matches = 0
     center = None
@@ -236,8 +236,8 @@ class Compare():
 
                         if os.path.exists("main_with_points_new.jpg"):
                             main_img_with_points = cv.circle(cv.imread("main_with_points_new.jpg"), self.center,
-                                                             radius=10,
-                                                             color=(0, 0, 0), thickness=20)
+                                                             radius=3,
+                                                             color=(0, 0, 0), thickness=6)
                             cv.imwrite("main_with_points_new.jpg", main_img_with_points)
                         else:
                             cv.imwrite("main_with_points_new.jpg", self.img1)
